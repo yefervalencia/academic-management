@@ -244,7 +244,7 @@ def create_student(payload: StudentCreate, db: Session = Depends(get_db)):
 
     student = StudentModel(
         name=payload.name,
-        emanil=payload.emanil,
+        email=payload.email,
         birthdate=payload.birthdate,
         degree=payload.degree,
     )
@@ -302,6 +302,96 @@ def delete_student(student_id: int, db: Session = Depends(get_db)):
     db.delete(student)
     db.commit()
     return None
+
+# -------------------------------------------------------------
+# CRUD - COURSES
+# -------------------------------------------------------------
+
+# CREATE
+@app.post("/courses/", response_model=CourseRead, status_code=status.HTTP_201_CREATED)
+def create_course(payload: CourseCreate, db: Session = Depends(get_db)):
+
+    # validar código único
+    existing = db.query(CourseModel).filter(CourseModel.code == payload.code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Course code already exists.")
+
+    # validar que el profesor exista (si se envía)
+    if payload.professor_id is not None:
+        prof = db.query(ProfessorModel).filter(ProfessorModel.id == payload.professor_id).first()
+        if not prof:
+            raise HTTPException(status_code=400, detail="Professor not found.")
+
+    course = CourseModel(
+        code=payload.code,
+        name=payload.name,
+        description=payload.description,
+        professor_id=payload.professor_id,
+        maximum_capacity=payload.maximum_capacity,
+    )
+
+    db.add(course)
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+# READ - list all
+@app.get("/courses/", response_model=List[CourseRead])
+def list_courses(db: Session = Depends(get_db)):
+    return db.query(CourseModel).all()
+
+
+# READ - get by id
+@app.get("/courses/{course_id}", response_model=CourseRead)
+def get_course(course_id: int, db: Session = Depends(get_db)):
+    course = db.query(CourseModel).filter(CourseModel.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found.")
+    return course
+
+
+# UPDATE
+@app.put("/courses/{course_id}", response_model=CourseRead)
+def update_course(course_id: int, payload: CourseCreate, db: Session = Depends(get_db)):
+    course = db.query(CourseModel).filter(CourseModel.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found.")
+
+    # validar código único si está cambiando
+    if payload.code != course.code:
+        existing = db.query(CourseModel).filter(CourseModel.code == payload.code).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Course code already in use.")
+
+    # validar profesor
+    if payload.professor_id is not None:
+        prof = db.query(ProfessorModel).filter(ProfessorModel.id == payload.professor_id).first()
+        if not prof:
+            raise HTTPException(status_code=400, detail="Professor not found.")
+
+    course.code = payload.code
+    course.name = payload.name
+    course.description = payload.description
+    course.professor_id = payload.professor_id
+    course.maximum_capacity = payload.maximum_capacity
+
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+# DELETE
+@app.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_course(course_id: int, db: Session = Depends(get_db)):
+    course = db.query(CourseModel).filter(CourseModel.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found.")
+
+    db.delete(course)
+    db.commit()
+    return None
+
 
 # -------------------------------------------------------------
 # CREATE TABLES
