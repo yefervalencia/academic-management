@@ -1,6 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy import create_engine, Column, Integer, String, Date, DateTime, Text, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
 from datetime import datetime, date
 from pydantic import BaseModel, EmailStr, ConfigDict
 from typing import Optional, List
@@ -22,6 +22,14 @@ DATABASE_URL = "sqlite:///./academic.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+# Dependency: get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # -------------------------------------------------------------
 # MODELS
@@ -149,5 +157,81 @@ class EnrollmentRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-# Crear tablas
+# -------------------------------------------------------------
+# CRUD - PROFESSORS
+# -------------------------------------------------------------
+
+# CREATE
+@app.post("/professors/", response_model=ProfessorRead, status_code=status.HTTP_201_CREATED)
+def create_professor(payload: ProfessorCreate, db: Session = Depends(get_db)):
+    # validar correo único
+    existing = db.query(ProfessorModel).filter(ProfessorModel.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Correo de profesor ya registrado.")
+
+    prof = ProfessorModel(
+        name=payload.name,
+        email=payload.email,
+        tittle=payload.tittle,
+        contratation_date=payload.contratation_date,
+    )
+    db.add(prof)
+    db.commit()
+    db.refresh(prof)
+    return prof
+
+
+# READ - list all
+@app.get("/professors/", response_model=List[ProfessorRead])
+def list_professors(db: Session = Depends(get_db)):
+    return db.query(ProfessorModel).all()
+
+
+# READ - get by id
+@app.get("/professors/{professor_id}", response_model=ProfessorRead)
+def get_professor(professor_id: int, db: Session = Depends(get_db)):
+    prof = db.query(ProfessorModel).filter(ProfessorModel.id == professor_id).first()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profesor no encontrado.")
+    return prof
+
+
+# UPDATE
+@app.put("/professors/{professor_id}", response_model=ProfessorRead)
+def update_professor(professor_id: int, payload: ProfessorCreate, db: Session = Depends(get_db)):
+    prof = db.query(ProfessorModel).filter(ProfessorModel.id == professor_id).first()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profesor no encontrado.")
+
+    # validar correo único si cambia
+    if payload.email != prof.email:
+        existing = db.query(ProfessorModel).filter(ProfessorModel.correo == payload.correo).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Correo ya está siendo usado por otro profesor.")
+
+    prof.name = payload.name
+    prof.email = payload.email
+    prof.tittle = payload.tittle
+    prof.contratation_date = payload.contratation_date
+
+    db.commit()
+    db.refresh(prof)
+    return prof
+
+
+# DELETE
+@app.delete("/professors/{professor_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_professor(professor_id: int, db: Session = Depends(get_db)):
+    prof = db.query(ProfessorModel).filter(ProfessorModel.id == professor_id).first()
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profesor no encontrado.")
+
+    db.delete(prof)
+    db.commit()
+    return None
+
+
+# -------------------------------------------------------------
+# CREATE TABLES
+# -------------------------------------------------------------
 Base.metadata.create_all(bind=engine)
