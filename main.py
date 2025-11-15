@@ -230,6 +230,78 @@ def delete_professor(professor_id: int, db: Session = Depends(get_db)):
     db.commit()
     return None
 
+# -------------------------------------------------------------
+# CRUD - STUDENTS
+# -------------------------------------------------------------
+
+# CREATE
+@app.post("/students/", response_model=StudentRead, status_code=status.HTTP_201_CREATED)
+def create_student(payload: StudentCreate, db: Session = Depends(get_db)):
+    # validar correo único
+    existing = db.query(StudentModel).filter(StudentModel.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Correo de estudiante ya registrado.")
+
+    student = StudentModel(
+        name=payload.name,
+        emanil=payload.emanil,
+        birthdate=payload.birthdate,
+        degree=payload.degree,
+    )
+    db.add(student)
+    db.commit()
+    db.refresh(student)
+    return student
+
+
+# READ - list all
+@app.get("/students/", response_model=List[StudentRead])
+def list_students(db: Session = Depends(get_db)):
+    return db.query(StudentModel).all()
+
+
+# READ - get by id
+@app.get("/students/{student_id}", response_model=StudentRead)
+def get_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(StudentModel).filter(StudentModel.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Estudiante no encontrado.")
+    return student
+
+
+# UPDATE
+@app.put("/students/{student_id}", response_model=StudentRead)
+def update_student(student_id: int, payload: StudentCreate, db: Session = Depends(get_db)):
+    student = db.query(StudentModel).filter(StudentModel.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Estudiante no encontrado.")
+
+    # validar correo único si cambia
+    if payload.email != student.email:
+        existing = db.query(StudentModel).filter(StudentModel.email == payload.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Correo ya está siendo usado por otro estudiante.")
+
+    student.name = payload.name
+    student.email = payload.email
+    student.birthdate = payload.birthdate
+    student.degree = payload.degree
+
+    db.commit()
+    db.refresh(student)
+    return student
+
+
+# DELETE
+@app.delete("/students/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(StudentModel).filter(StudentModel.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Estudiante no encontrado.")
+
+    db.delete(student)
+    db.commit()
+    return None
 
 # -------------------------------------------------------------
 # CREATE TABLES
