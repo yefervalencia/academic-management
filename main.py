@@ -392,6 +392,110 @@ def delete_course(course_id: int, db: Session = Depends(get_db)):
     db.commit()
     return None
 
+# -------------------------------------------------------------
+# CRUD - ENROLLMENTS
+# -------------------------------------------------------------
+
+# ENROLL: enroll a student in a course
+@app.post("/courses/{course_id}/enroll", response_model=EnrollmentRead, status_code=status.HTTP_201_CREATED)
+def enroll_student(course_id: int, payload: EnrollmentCreate, db: Session = Depends(get_db)):
+
+    # Validar curso
+    course = db.query(CourseModel).filter(CourseModel.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found.")
+
+    # Validar estudiante
+    student = db.query(StudentModel).filter(StudentModel.id == payload.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+
+    # Validar que no esté inscrito ya
+    existing = (
+        db.query(EnrollmentModel)
+        .filter(
+            EnrollmentModel.course_id == course_id,
+            EnrollmentModel.student_id == payload.student_id,
+            EnrollmentModel.state == "active"
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Student is already enrolled in this course.")
+
+    # Validar cupo máximo
+    if course.maximum_capacity is not None:
+        active_count = (
+            db.query(EnrollmentModel)
+            .filter(EnrollmentModel.course_id == course_id, EnrollmentModel.state == "active")
+            .count()
+        )
+        if active_count >= course.maximum_capacity:
+            raise HTTPException(status_code=400, detail="Course has reached maximum capacity.")
+
+    enrollment = EnrollmentModel(
+        course_id=course_id,
+        student_id=payload.student_id,
+    )
+
+    db.add(enrollment)
+    db.commit()
+    db.refresh(enrollment)
+    return enrollment
+
+
+
+# UNENROLL: remove the student from the course
+@app.delete("/courses/{course_id}/unenroll/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unenroll_student(course_id: int, student_id: int, db: Session = Depends(get_db)):
+
+    enrollment = (
+        db.query(EnrollmentModel)
+        .filter(EnrollmentModel.course_id == course_id, EnrollmentModel.student_id == student_id)
+        .first()
+    )
+
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Enrollment not found.")
+
+    db.delete(enrollment)
+    db.commit()
+    return None
+
+
+
+# GET students enrolled in a course
+@app.get("/courses/{course_id}/students", response_model=List[StudentRead])
+def list_students_in_course(course_id: int, db: Session = Depends(get_db)):
+
+    course = db.query(CourseModel).filter(CourseModel.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found.")
+
+    students = [
+        e.student
+        for e in course.enrollments
+    ]
+
+    return students
+
+
+
+# GET courses a student is enrolled in
+@app.get("/students/{student_id}/courses", response_model=List[CourseRead])
+def list_courses_of_student(student_id: int, db: Session = Depends(get_db)):
+
+    student = db.query(StudentModel).filter(StudentModel.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+
+    courses = [
+        e.course
+        for e in student.enrollments
+    ]
+
+    return courses
+
 
 # -------------------------------------------------------------
 # CREATE TABLES
